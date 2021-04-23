@@ -23,7 +23,7 @@ library(ggplot2)
 
 We will first download the data from the download link. Then we will read the data from the bz2 compressed comma separated raw file into an R object.
 
-``` {r message = FALSE, warning = FALSE, echo = TRUE, cache = TRUE}
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
 ## Download the data file
 fl_nm = "storm_data.csv.bz2"
 if(!file.exists(fl_nm)) {
