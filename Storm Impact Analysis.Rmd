@@ -1,0 +1,182 @@
+---
+title: "Impact Analysis of Storms on Public Health & Economy"
+Author: Puneet Singla
+output: html_document
+---
+
+## Synopsis
+
+This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database to identify the type of storms that have a major impact on public health and economy. In this report, we have quantified the impact on public health as a function of public fatalities and injuries and economic impact as a function of property and crop damage. From our analysis, we concluded that Tornados and Floods cause the most damage to public health and economy respectively.
+
+## Data Processing
+
+The data for this project came from the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. [Storm Data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2)
+
+Documentation for this data is also available at [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+
+### Downloading & Reading the data
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
+library(dplyr)
+library(ggplot2)
+```
+
+We will first download the data from the download link. Then we will read the data from the bz2 compressed comma separated raw file into an R object.
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE, cache = TRUE}
+## Download the data file
+fl_nm = "storm_data.csv.bz2"
+if(!file.exists(fl_nm)) {
+  download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2",fl_nm)
+}
+
+## Read the data
+strm_dt <- read.csv("storm_data.csv.bz2",stringsAsFactors = FALSE)
+```
+
+After reading the data, we will summarize the R object to familiarize ourselves with the data.
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
+str(strm_dt)
+```
+
+Lastly, we will check few rows to make sure everything looks good.
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
+head(strm_dt[,4:10])
+```
+
+### Cleansing the data
+
+In this section, we will transform the raw data into a tidy dataset that we will use for our analysis.
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
+## Making a copy of the raw data into a new object
+tdy_strm_dt <- strm_dt
+```
+
+First, Property damage and crop damage is expressed as a combination of values and exponents. In this step, we will convert them into absolute numbers.
+
+Then, we will remove the records with erroneous exponents from our dataset.
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
+## Standardize the Property Damage and Crop Damage Exponents
+tdy_strm_dt[tdy_strm_dt$PROPDMGEXP=="","PROPDMGEXP"] <- "0"
+tdy_strm_dt[grep("[Bb]",tdy_strm_dt$PROPDMGEXP),"PROPDMGEXP"] <- "9"
+tdy_strm_dt[grep("[Mm]",tdy_strm_dt$PROPDMGEXP),"PROPDMGEXP"] <- "6"
+tdy_strm_dt[grep("[Kk]",tdy_strm_dt$PROPDMGEXP),"PROPDMGEXP"] <- "3"
+tdy_strm_dt[tdy_strm_dt$CROPDMGEXP=="","CROPDMGEXP"] <- "0"
+tdy_strm_dt[grep("[Kk]",tdy_strm_dt$CROPDMGEXP),"CROPDMGEXP"] <- "3"
+tdy_strm_dt[grep("[Mm]",tdy_strm_dt$CROPDMGEXP),"CROPDMGEXP"] <- "6"
+tdy_strm_dt[grep("[Bb]",tdy_strm_dt$CROPDMGEXP),"CROPDMGEXP"] <- "9"
+
+## Segregate the error records
+err_strm_dt <- rbind(tdy_strm_dt[-grep("[0-9]",tdy_strm_dt$PROPDMGEXP),],
+                    tdy_strm_dt[-grep("[0-9]",tdy_strm_dt$CROPDMGEXP),])
+
+## Remove the error records
+tdy_strm_dt <- tdy_strm_dt[grep("[0-9]",tdy_strm_dt$PROPDMGEXP),]
+tdy_strm_dt <- tdy_strm_dt[grep("[0-9]",tdy_strm_dt$CROPDMGEXP),]
+
+## Calculate Total Damage
+tdy_strm_dt$PROPDMGEXP <- as.numeric(tdy_strm_dt$PROPDMGEXP)
+tdy_strm_dt$CROPDMGEXP <- as.numeric(tdy_strm_dt$CROPDMGEXP)
+tdy_strm_dt$PROPDMGABS <- tdy_strm_dt$PROPDMG*10^tdy_strm_dt$PROPDMGEXP
+tdy_strm_dt$CROPDMGABS <- tdy_strm_dt$CROPDMG*10^tdy_strm_dt$CROPDMGEXP
+
+```
+
+Lastly, we will retain only the relevant fields for our analysis.
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
+## Retain only the required information
+tdy_strm_dt$BGN_YR <- format(as.Date(tdy_strm_dt$BGN_DATE,"%m/%d/%Y"),"%Y")
+sbst_tdy_strm_dt <- tdy_strm_dt[,c("REFNUM","BGN_YR","EVTYPE","FATALITIES","INJURIES","PROPDMGABS","CROPDMGABS")]
+```
+
+## Results
+
+### Across the United States, which types of events are most harmful with respect to population health?
+
+We will define the most harmful events as a function of fatalities and injuries caused to the general population.
+
+First, we will calculate key aggregated metrics for each Event over the entire duration of the data.
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
+## Calculate key aggregated metrics
+sbst_tdy_strm_dt <- group_by(sbst_tdy_strm_dt, EVTYPE)
+agg_strm_dt <- summarize(sbst_tdy_strm_dt, ttl_FATALITIES=sum(FATALITIES), ttl_INJURIES=sum(INJURIES),
+                                 ttl_DMG=sum(PROPDMGABS+CROPDMGABS), mean_FATALITIES=mean(FATALITIES),
+                                 mean_INJURIES=mean(INJURIES), mean_DMG=mean(PROPDMGABS+CROPDMGABS),
+                                 ttl_INSTANCES=n())
+```
+
+Then, we will rank the events based on Public fatalities and Injuries.
+
+For the purpose of ranking, we are equating 20 injuries to a fatality.
+
+Followed by this, we will identify the top 5 events with highest public health impact based on fatalities and injuries.
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
+## Calculate the rank and top 5 events
+agg_strm_dt$rank <- dense_rank(desc(agg_strm_dt$ttl_FATALITIES+agg_strm_dt$ttl_INJURIES*.05))
+agg_strm_dt$legend <- agg_strm_dt$EVTYPE
+agg_strm_dt[agg_strm_dt$rank>5,"legend"] <- "All Others"
+
+## Plot the Fatalities and Injuries and label the top 5 events
+plot(agg_strm_dt$ttl_FATALITIES, agg_strm_dt$ttl_INJURIES, col=as.factor(agg_strm_dt$legend), lwd=3, pch=8,
+     ylab = "Total Injuries", xlab = "Total Fatalities")
+legend("topleft",unique(agg_strm_dt$legend), col = as.factor(unique(agg_strm_dt$legend)), lwd=3)
+```
+
+From the above scatter plot, we conclude that Tornados have the highest impact on the public health by far.
+
+To ensure data capture is not a factor in our conclusion, we will re-run the same analysis on data since 2000.
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
+## Re-run the same steps on data since 2000
+sbst_tdy_strm_dt_2k <- subset(sbst_tdy_strm_dt, BGN_YR>=2000)
+agg_strm_dt_2k <- summarize(sbst_tdy_strm_dt_2k, ttl_FATALITIES=sum(FATALITIES), ttl_INJURIES=sum(INJURIES),
+                                 ttl_DMG=sum(PROPDMGABS+CROPDMGABS), mean_FATALITIES=mean(FATALITIES),
+                                 mean_INJURIES=mean(INJURIES), mean_DMG=mean(PROPDMGABS+CROPDMGABS),
+                                 ttl_INSTANCES=n())
+
+agg_strm_dt_2k$rank <- dense_rank(desc(agg_strm_dt_2k$ttl_FATALITIES+agg_strm_dt_2k$ttl_INJURIES*.05))
+agg_strm_dt_2k$legend <- agg_strm_dt_2k$EVTYPE
+agg_strm_dt_2k[agg_strm_dt_2k$rank>5,"legend"] <- "All Others"
+
+## Plot the Fatalities and Injuries and label the top 5 events since 2000
+plot(agg_strm_dt_2k$ttl_FATALITIES, agg_strm_dt_2k$ttl_INJURIES, col=as.factor(agg_strm_dt_2k$legend), lwd=3, pch=8,
+     ylab = "Total Injuries", xlab = "Total Fatalities")
+legend("topleft",unique(agg_strm_dt_2k$legend), col = as.factor(unique(agg_strm_dt_2k$legend)), lwd=3)
+```
+
+The above scatter plot confirms that Tornados continues to have a major impact on public health. In fact, that is true for Excessive Heat, Lighting and Flash floods as well.
+
+### Across the United States, which types of events have the greatest economic consequences?
+
+In this section, we will analyze the economic impact of these events.
+
+Similar to the above analysis, we will first identify the Top 5 events with highest property and crop damage (in USD).
+
+For our scatter plot, we will focus on two key aspects.
+1) Total damage caused by an event
+2) Mean damage caused by an event
+
+``` {r message = FALSE, warning = FALSE, echo = TRUE}
+## Calculate the rank and top 5 events 
+agg_strm_dt$rank <- dense_rank(desc(agg_strm_dt$ttl_DMG))
+agg_strm_dt$legend <- agg_strm_dt$EVTYPE
+agg_strm_dt[agg_strm_dt$rank>5,"legend"] <- "All Others"
+
+## Plot the total and mean damage and label the top 5 events
+plot(agg_strm_dt$ttl_DMG, agg_strm_dt$mean_DMG, col=as.factor(agg_strm_dt$legend), lwd=3, pch=8,
+     ylab = "Average Damage", xlab = "Total Damage")
+legend("topleft",unique(agg_strm_dt$legend), col = as.factor(unique(agg_strm_dt$legend)), lwd=3)
+
+```
+
+From this scatter plot, we can draw following conclusions:
+
+1. While a Flood doesn't cause a lot of damage on an average, it occurs so frequently that it has the highest economic impact.
+2. On the other hand, Hurricanes and Typhoons occur at a lower rate, but each time they happen there is a major economic loss.
